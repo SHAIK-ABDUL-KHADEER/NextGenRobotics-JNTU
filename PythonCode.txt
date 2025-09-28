@@ -1,0 +1,90 @@
+import cv2
+import mediapipe as mp
+import socket
+import time
+
+# ------------------- UDP Setup -------------------
+UDP_IP = "10.250.46.87"  # <-- Replace with NodeMCU IP from Serial Monitor
+UDP_PORT = 4210
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# ------------------- MediaPipe Setup -------------------
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+
+# ------------------- Finger Counting -------------------
+FINGER_TIPS = [4, 8, 12, 16, 20]  # Thumb, Index, Middle, Ring, Pinky
+
+def count_fingers(hand_landmarks):
+    fingers = []
+    # Thumb
+    if hand_landmarks.landmark[FINGER_TIPS[0]].x < hand_landmarks.landmark[FINGER_TIPS[0]-1].x:
+        fingers.append(1)
+    else:
+        fingers.append(0)
+    # Other fingers
+    for tip in FINGER_TIPS[1:]:
+        if hand_landmarks.landmark[tip].y < hand_landmarks.landmark[tip-2].y:
+            fingers.append(1)
+        else:
+            fingers.append(0)
+    return fingers
+
+# ------------------- Gesture Mapping -------------------
+GESTURE_MAP = {
+    (0,1,0,0,0): "FORWARD",
+    (0,1,1,0,0): "BACKWARD",
+    (0,1,1,1,0): "LEFT",
+    (0,1,1,1,1): "RIGHT",
+    (0,0,0,0,0): "STOP",
+    (1,1,1,1,1): "DANCE"
+}
+
+# ------------------- Main Loop -------------------
+cap = cv2.VideoCapture(0)
+last_gesture = None
+last_sent_time = 0
+gesture_start_time = None
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame = cv2.flip(frame, 1)  # Mirror image
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb)
+
+    gesture_name = "None"
+
+    if results.multi_hand_landmarks:
+        hand_landmarks = results.multi_hand_landmarks[0]
+        mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        fingers = tuple(count_fingers(hand_landmarks))
+        gesture_name = GESTURE_MAP.get(fingers, "Unknown")
+
+        current_time = time.time()
+        if gesture_name == last_gesture:
+            if gesture_start_time and current_time - gesture_start_time >= 0.3:
+                if current_time - last_sent_time >= 1:
+                    # Send UDP command
+                    sock.sendto(gesture_name.encode(), (UDP_IP, UDP_PORT))
+                    print(f"Sent: {gesture_name}")
+                    last_sent_time = current_time
+                    gesture_start_time = current_time
+        else:
+            last_gesture = gesture_name
+            gesture_start_time = current_time
+
+    cv2.putText(frame, f'Gesture: {gesture_name}', (10, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+
+    cv2.imshow("Hand Gesture Control", frame)
+
+    if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
+        break
+
+cap.release()
+cv2.destroyAllWindows()
