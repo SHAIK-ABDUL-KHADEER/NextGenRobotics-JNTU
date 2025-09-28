@@ -1,0 +1,89 @@
+import speech_recognition as sr
+import requests
+import time
+import google.generativeai as genai
+
+# === CONFIGURE ESP8266 IP ===
+ROBOT_IP = "http://10.250.46.87/move"  # Add /move endpoint
+
+# === GOOGLE GEMINI API SETUP ===
+genai.configure(api_key="api")
+model = genai.GenerativeModel('gemini-2.0-flash')
+
+# === FUNCTION TO GET INTENT FROM GEMINI ===
+def get_intent_from_gemini(user_text):
+    prompt = f"""
+    You are a robot control assistant. Convert user commands into intents.
+
+    Possible intents:
+    - "forward"
+    - "backward"
+    - "left"
+    - "right"
+    - "stop"
+    - "dance"
+
+    Respond with ONLY ONE of the intents above. No explanation.
+
+    Example:
+    User: "come here" → Intent: "forward"
+    User: "go back" → Intent: "backward"
+    User: "turn left" → Intent: "left"
+    User: "hey do a dance" → Intent: "dance"
+
+    Now user said: "{user_text}"
+    Intent:"""
+
+    response = model.generate_content(prompt)
+    return response.text.strip().lower()
+
+# === SPEECH RECOGNITION SETUP ===
+r = sr.Recognizer()
+print("🎤 Speak commands like: 'come here', 'move back', 'turn left', 'stop', 'do a dance' (Telugu/Hindi/English)")
+
+valid_intents = ['forward', 'backward', 'left', 'right', 'stop', 'dance']
+languages = ['te-IN', 'hi-IN', 'en-US']  # Telugu, Hindi, English
+
+while True:
+    try:
+        with sr.Microphone() as source:
+            r.adjust_for_ambient_noise(source, duration=1)
+            print("\n🎙️ Listening...")
+            audio = r.listen(source, timeout=3)
+
+        # Try recognizing speech in multiple languages
+        user_command = None
+        for lang in languages:
+            try:
+                user_command = r.recognize_google(audio, language=lang)
+                break
+            except sr.UnknownValueError:
+                continue
+
+        if not user_command:
+            print("❗ Could not understand audio in any supported language.")
+            continue
+
+        print("✅ You said:", user_command)
+
+        # Get intent from Gemini
+        intent = get_intent_from_gemini(user_command)
+        print("🤖 Gemini Intent:", intent)
+
+        # Send intent to ESP8266
+        if intent in valid_intents:
+            try:
+                res = requests.get(ROBOT_IP, params={"intent": intent}, timeout=2)
+                print(f"📤 Sent to NodeMCU: {intent} | Response: {res.text}")
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Could not reach NodeMCU: {e}")
+        else:
+            print("❌ Unknown intent from Gemini")
+
+    except sr.WaitTimeoutError:
+        print("⌛ Timeout. Please speak again.")
+    except sr.RequestError as e:
+        print(f"❗ Speech recognition service error: {e}")
+    except KeyboardInterrupt:
+        print("🛑 Exiting...")
+        break

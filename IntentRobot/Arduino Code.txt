@@ -1,0 +1,113 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <Servo.h>
+
+// WiFi credentials
+const char* ssid = "robot";
+const char* password = "123456789";
+
+// HTTP server on port 80
+ESP8266WebServer server(80);
+
+// Motor pins
+#define IN1 D0
+#define IN2 D1
+#define IN3 D2
+#define IN4 D3
+#define ENABLE D4  // Always enabled
+
+// Servo pins
+#define SERVO1 D5  // Hand1
+#define SERVO2 D6  // Hand2
+#define SERVO3 D7  // Head
+
+Servo hand1, hand2, head;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Setup motors
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENABLE, OUTPUT);
+  digitalWrite(ENABLE, HIGH); // Always enabled
+
+  // Attach servos
+  hand1.attach(SERVO1);
+  hand2.attach(SERVO2);
+  head.attach(SERVO3);
+
+  // Connect to WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected!");
+  Serial.print("Robot IP: ");
+  Serial.println(WiFi.localIP());
+
+  // Setup HTTP routes
+  server.on("/move", handleMove);
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient();
+}
+
+// Function to handle movement commands
+void handleMove() {
+  if (!server.hasArg("intent")) {
+    server.send(400, "text/plain", "No intent provided");
+    return;
+  }
+  String intent = server.arg("intent");
+  Serial.println("Received intent: " + intent);
+
+  if (intent == "forward") {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+  } else if (intent == "backward") {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+  } else if (intent == "left") {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+  } else if (intent == "right") {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+  } else if (intent == "stop") {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
+  } else if (intent == "dance") {
+    danceRoutine();
+  }
+
+  server.send(200, "text/plain", "Intent executed: " + intent);
+}
+
+// Example dance routine
+void danceRoutine() {
+  for (int i = 0; i < 3; i++) {
+    // Swing servos
+    hand1.write(0); hand2.write(180); head.write(90);
+    delay(500);
+    hand1.write(180); hand2.write(0); head.write(0);
+    delay(500);
+  }
+}
