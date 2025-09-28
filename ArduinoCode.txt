@@ -1,0 +1,142 @@
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+#include <Servo.h>
+
+// WiFi credentials
+const char* ssid = "robot";
+const char* password = "123456789";
+
+// UDP setup
+WiFiUDP Udp;
+const unsigned int localUdpPort = 4210;
+char incomingPacket[255];
+
+// DC Motor pins
+#define IN1 D0
+#define IN2 D1
+#define IN3 D2
+#define IN4 D3
+#define ENABLE D4
+
+// Servo pins
+#define SERVO_HEAD D5
+#define SERVO_LEFT D6
+#define SERVO_RIGHT D7
+
+Servo headServo;
+Servo leftServo;
+Servo rightServo;
+
+void setup() {
+  Serial.begin(115200);
+  digitalWrite(ENABLE, HIGH); // Always HIGH
+  // Motor pins
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  stopMotors();
+
+  // Servo attach
+  headServo.attach(SERVO_HEAD);
+  leftServo.attach(SERVO_LEFT);
+  rightServo.attach(SERVO_RIGHT);
+
+  headServo.write(90);  // initial center
+  leftServo.write(90);
+  rightServo.write(90);
+
+  // Connect WiFi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n✅ Connected to WiFi!");
+
+  // Print NodeMCU IP
+  Serial.print("🌐 NodeMCU IP Address: ");
+  Serial.println(WiFi.localIP());  // <-- Copy this IP into Python code
+
+  // Start UDP
+  Udp.begin(localUdpPort);
+  Serial.printf("UDP listening on port %d\n", localUdpPort);
+}
+
+
+void loop() {
+  int packetSize = Udp.parsePacket();
+  if (packetSize) {
+    int len = Udp.read(incomingPacket, 255);
+    if (len > 0) incomingPacket[len] = '\0';
+    String command = String(incomingPacket);
+    command.toUpperCase();
+    Serial.println("Received: " + command);
+    handleCommand(command);
+  }
+}
+
+void handleCommand(String cmd) {
+  if (cmd == "FORWARD") moveForward();
+  else if (cmd == "BACKWARD") moveBackward();
+  else if (cmd == "LEFT") turnLeft();
+  else if (cmd == "RIGHT") turnRight();
+  else if (cmd == "STOP") stopMotors();
+  else if (cmd == "DANCE") dance();
+}
+
+void moveForward() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  resetServos();
+}
+
+void moveBackward() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  resetServos();
+}
+
+void turnLeft() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  resetServos();
+}
+
+void turnRight() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  resetServos();
+}
+
+void stopMotors() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+  resetServos();
+}
+
+void resetServos() {
+  headServo.write(90);
+  leftServo.write(90);
+  rightServo.write(90);
+}
+
+// Dance routine
+void dance() {
+  unsigned long start = millis();
+  while (millis() - start < 8000) { // dance for 8 seconds
+    // clockwise rotation
+    digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+    digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH);
+    headServo.write(60); leftServo.write(120); rightServo.write(60);
+    delay(2000);
+
+    // anticlockwise rotation
+    digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+    digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+    headServo.write(120); leftServo.write(60); rightServo.write(120);
+    delay(2000);
+  }
+  stopMotors();
+}
